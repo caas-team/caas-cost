@@ -1,0 +1,4 @@
+.git
+LICENSE
+CODEOWNERS
+charts/kube-prometheus-stack

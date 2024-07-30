@@ -1,0 +1,216 @@
+global:
+  clusterName: &cluster-name c1
+
+caas:
+  projectId: cluster-costs
+  clusterPrometheusNamespace: cluster-prometheus-namespace
+
+kube-prometheus-stack:
+  nameOverride: "opencost-prometheus"
+  fullnameOverride: "opencost-prometheus"
+
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      additionalLabels:
+        stack: caas-cost
+    prometheusSpec:
+      externalLabels: { cluster: *cluster-name }
+      replicas: 1
+      image:
+        tag: v2.51.2
+
+      additionalScrapeConfigs:
+        []
+        # - job_name: "federate"
+        #   scrape_interval: 1m
+        #   honor_labels: true
+        #   metrics_path: "/federate"
+        #   static_configs:
+        #     - targets:
+        #         - cluster-prometheus-namespace.cluster-prometheus-svc.svc:9090
+        #   params:
+        #     # https://docs.kubecost.com/architecture/user-metrics
+        #     "match[]":
+        #       - '{__name__=~"container_memory_usage_bytes|container_fs_limit_bytes|container_fs_usage_bytes|container_memory_working_set_bytes|container_cpu_usage_seconds_total|container_cpu_cfs_periods_total|container_cpu_cfs_throttled_periods_total", job="kubelet"}'
+        #       - '{__name__=~"kube_deployment_spec_replicas|kube_deployment_status_replicas_available|kube_job_status_failed|kube_namespace_annotations|kube_persistentvolume_capacity_bytes|kube_persistentvolume_status_phase|kube_persistentvolumeclaim_info|kube_persistentvolumeclaim_resource_requests_storage_bytes|kube_pod_annotations|kube_pod_container_resource_limits|kube_pod_container_resource_limits_cpu_cores|kube_pod_container_resource_limits_memory_bytes|kube_pod_container_resource_requests|kube_pod_container_status_restarts_total|kube_pod_container_status_running|kube_pod_container_status_terminated_reason|kube_pod_status_phase|kube_replicaset_owner", job="kube-state-metrics"}'
+
+      evaluationInterval: "30s"
+      podAntiAffinityTopologyKey: topology.kubernetes.io/zone
+
+      serviceMonitorNamespaceSelector:
+        matchLabels: null
+      serviceMonitorSelector:
+        matchLabels:
+          stack: caas-cost
+      podMonitorNamespaceSelector:
+        matchLabels: null
+      probeNamespaceSelector:
+        matchLabels: null
+      ruleNamespaceSelector:
+        matchLabels: null
+      scrapeConfigNamespaceSelector:
+        matchLabels: null
+
+      logLevel: info
+      retention: 90d
+      scrapeInterval: "1m"
+      shards: 1
+      tsdb:
+        outOfOrderTimeWindow: 5m
+      storageSpec:
+        {}
+        # volumeClaimTemplate:
+        #   spec:
+        #     accessModes:
+        #       - ReadWriteOnce
+        #     resources:
+        #       requests:
+        #         storage: 20Gi
+        #     storageClassName: longhorn
+
+      resources:
+        limits:
+          memory: "5Gi"
+          cpu: "2"
+        requests:
+          memory: "300Mi"
+          cpu: "250m"
+      securityContext:
+        fsGroup: 2000
+        supplementalGroups:
+          - 1000
+
+  crds:
+    create: false
+  defaultRules:
+    create: false
+  alertmanager:
+    enabled: false
+  global:
+    rbac:
+      create: false
+      createAggregateClusterRoles: false
+      pspEnabled: false
+  grafana:
+    enabled: false
+  kubeApiServer:
+    enabled: false
+  kubelet:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  coreDns:
+    enabled: false
+  kubeDns:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  kubeStateMetrics:
+    enabled: false
+  kube-state-metrics:
+    rbac:
+      create: false
+    releaseLabel: false
+    prometheus:
+      monitor:
+        enabled: false
+        honorLabels: false
+    selfMonitor:
+      enabled: false
+  nodeExporter:
+    enabled: false
+  prometheus-node-exporter:
+    prometheus:
+      monitor:
+        enabled: false
+    releaseLabel: false
+    rbac:
+      pspEnabled: false
+  prometheusOperator:
+    enabled: false
+  thanosRuler:
+    enabled: false
+
+opencost:
+  nameOverride: opencost
+  fullnameOverride: opencost
+  loglevel: info
+
+  opencost:
+    exporter:
+      defaultClusterId: *cluster-name
+      image:
+        tag: 1.109.0
+      extraEnv:
+        PROM_CLUSTER_ID_LABEL: "cluster"
+        EMIT_KSM_V1_METRICS: "false"
+        EMIT_KSM_V1_METRICS_ONLY: "true"
+      securityContext:
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        privileged: false
+      extraVolumeMounts:
+        - mountPath: /var/configs
+          name: cloud-cfg
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "100Mi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"
+
+    customPricing:
+      enabled: true
+      provider: custom
+      costModel:
+        description: CaaS pricing configuration (per hour - one month has 730h).
+        CPU: 0.065068 # adapted from kubecost: 47.50 price per month in EUR / 730h
+        spotCPU: 0.006658 # adapted from kubecost: 4.86 price per month in EUR / 730h
+        RAM: 0.052055 # adapted from caas kubecost: 38 price per month in EUR / 730h
+        spotRAM: 0.000891 # adapted from caas kubecost: 0.65 price per month in EUR / 730h
+        GPU: 0.95 # adapted from caas kubecost: 693.5 price per month in EUR / 730h
+        storage: 0.000205 # adapted from caas kubecost: 0.15 price per month in EUR / 730h
+        zoneNetworkEgress: 0.01 # default
+        regionNetworkEgress: 0.01 # default
+        internetNetworkEgress: 0.143 # default
+    dataRetention:
+      dailyResolutionDays: 90
+    prometheus:
+      internal:
+        enabled: true
+        serviceName: prometheus-operated
+        namespaceName: opencost
+        port: 9090
+    metrics:
+      serviceMonitor:
+        enabled: true
+        scrapeInterval: 1m
+        additionalLabels:
+          stack: caas-cost
+    cloudCost:
+      enabled: false
+    ui:
+      enabled: false
+
+  podSecurityContext:
+    runAsNonRoot: true
+    fsGroup: 1001
+    runAsGroup: 1001
+    runAsUser: 1001
+    supplementalGroups: [1001]
+
+  extraVolumes:
+    - name: cloud-cfg
+      emptyDir:
+        sizeLimit: 50Mi
